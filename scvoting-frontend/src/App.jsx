@@ -1,138 +1,108 @@
-import { useState, useEffect } from "react";
-import { ethers } from "ethers";
-import "./App.css";
+import { useState, useEffect } from 'react'
+import { ethers } from 'ethers'
+import './App.css'
 
-// ⛔ Deine Smart Contract Adresse:
-const CONTRACT_ADDRESS = "0x6CefF4c3ACE4a98E9D2f6875cBB39031E9362e67";
+// Korrigiertes ABI - uint8 statt uint256!
+const CONTRACT_ABI = [
+  {
+    "inputs": [{ "internalType": "uint8", "name": "_vote", "type": "uint8" }],
+    "name": "vote",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [{ "internalType": "address", "name": "", "type": "address" }],
+    "name": "hasVoted",
+    "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [{ "internalType": "uint8", "name": "_option", "type": "uint8" }],
+    "name": "getVotes",
+    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]
 
-// 🔥 ABI aus artifacts kopiert (nur relevante Teile)
-const ABI = [
-  "function vote(uint256 option) public",
-  "function votes(uint256) public view returns (uint256)"
-];
+const CONTRACT_ADDRESS = "0x6CefF4c3ACE4a98E9D2f6875cBB39031E9362e67" // Deine Contract-Adresse hier
 
-export default function App() {
-  const [account, setAccount] = useState(null);
-  const [votes, setVotes] = useState([0, 0, 0]);
-  const [loadingVotes, setLoadingVotes] = useState(false);
+function App() {
+  const [account, setAccount] = useState(null)
+  const [contract, setContract] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+  const [success, setSuccess] = useState("")
 
-  // 🔥 MetaMask zu Sepolia wechseln
-  async function switchToSepolia() {
-    if (!window.ethereum) {
-      alert("MetaMask not installed!");
-      return;
-    }
-
+  const connectWallet = async () => {
     try {
-      await window.ethereum.request({
-        method: "wallet_switchEthereumChain",
-        params: [{ chainId: "0xAA36A7" }], // Sepolia chainId
-      });
-    } catch (switchError) {
-      // Sepolia wurde noch nie hinzugefügt
-      if (switchError.code === 4902) {
-        await window.ethereum.request({
-          method: "wallet_addEthereumChain",
-          params: [
-            {
-              chainId: "0xAA36A7",
-              chainName: "Sepolia",
-              rpcUrls: ["https://sepolia.infura.io/v3/"],
-              nativeCurrency: { name: "SepoliaETH", symbol: "ETH", decimals: 18 },
-              blockExplorerUrls: ["https://sepolia.etherscan.io"],
-            },
-          ],
-        });
+      if (!window.ethereum) {
+        setError("Bitte installiere MetaMask!")
+        return
       }
+      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' })
+      setAccount(accounts[0])
+      
+      const provider = new ethers.BrowserProvider(window.ethereum)
+      const signer = await provider.getSigner()
+      const contractInstance = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer)
+      setContract(contractInstance)
+      setError("")
+    } catch (err) {
+      setError("Wallet-Verbindung fehlgeschlagen: " + err.message)
     }
   }
 
-  // 🔥 Wallet verbinden
-  async function connectWallet() {
-    await switchToSepolia();
-
-    const accounts = await window.ethereum.request({
-      method: "eth_requestAccounts",
-    });
-
-    setAccount(accounts[0]);
-  }
-
-  // 🔥 Votes laden
-  async function loadVotes() {
-    setLoadingVotes(true);
-
+  const handleVote = async (option) => {
+    if (!contract) {
+      setError("Bitte zuerst Wallet verbinden!")
+      return
+    }
+    
+    setLoading(true)
+    setError("")
+    setSuccess("")
+    
     try {
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, provider);
-
-      const v0 = await contract.votes(0);
-      const v1 = await contract.votes(1);
-      const v2 = await contract.votes(2);
-
-      setVotes([Number(v0), Number(v1), Number(v2)]);
-    } catch (error) {
-      console.error("Error loading votes:", error);
-    }
-
-    setLoadingVotes(false);
-  }
-
-  // 🔥 Vote senden
-  async function vote(option) {
-    try {
-      const provider = new ethers.BrowserProvider(window.ethereum);
-      const signer = await provider.getSigner();
-      const contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
-
-      const tx = await contract.vote(option);
-      await tx.wait();
-
-      alert("Vote submitted!");
-      await loadVotes();
-    } catch (error) {
-      alert("Error: " + error.message);
+      const tx = await contract.vote(option)
+      await tx.wait()
+      setSuccess(`Erfolgreich für Option ${option} gestimmt!`)
+    } catch (err) {
+      if (err.message.includes("already voted")) {
+        setError("Du hast bereits abgestimmt!")
+      } else {
+        setError("Voting fehlgeschlagen: " + err.message)
+      }
+    } finally {
+      setLoading(false)
     }
   }
-
-  // Beim ersten Verbinden Votes laden
-  useEffect(() => {
-  if (!account) return;
-
-  async function fetchVotes() {
-    await loadVotes();
-  }
-
-  fetchVotes();
-}, [account]);
 
   return (
-    <div style={{ padding: 20 }}>
-      <h1>Smart Contract Voting</h1>
-
-      {account ? (
-        <p>Connected: {account}</p>
+    <div className="app">
+      <h1>SC Voting</h1>
+      
+      {!account ? (
+        <button onClick={connectWallet}>Wallet verbinden</button>
       ) : (
-        <button onClick={connectWallet}>Connect MetaMask</button>
+        <p>Verbunden: {account.slice(0,6)}...{account.slice(-4)}</p>
       )}
-
-      <h2>Votes</h2>
-
-      {loadingVotes ? (
-        <p>Loading votes...</p>
-      ) : (
-        <>
-          <p>Option 0: {votes[0]}</p>
-          <p>Option 1: {votes[1]}</p>
-          <p>Option 2: {votes[2]}</p>
-        </>
-      )}
-
-      <div style={{ marginTop: 20 }}>
-        <button onClick={() => vote(0)}>Vote Option 0</button>
-        <button onClick={() => vote(1)}>Vote Option 1</button>
-        <button onClick={() => vote(2)}>Vote Option 2</button>
+      
+      {error && <p style={{color: 'red'}}>{error}</p>}
+      {success && <p style={{color: 'green'}}>{success}</p>}
+      
+      <div className="voting-options">
+        <button onClick={() => handleVote(0)} disabled={loading || !account}>
+          {loading ? "Voting..." : "Option 0"}
+        </button>
+        <button onClick={() => handleVote(1)} disabled={loading || !account}>
+          {loading ? "Voting..." : "Option 1"}
+        </button>
       </div>
     </div>
-  );
+  )
 }
+
+export default App
