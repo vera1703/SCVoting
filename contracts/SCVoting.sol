@@ -2,8 +2,8 @@
 pragma solidity ^0.8.20;
 
 contract SCVoting {
-    mapping(address => bool) public hasVoted; // Track if an address has voted
-    uint256[3] public votes; // 3 options: 0 = A, 1 = B, 2 = C
+    mapping(address => bool) public hasVoted; 
+    uint256[3] public votes;
 
     event Voted(address indexed voter, uint8 option);
 
